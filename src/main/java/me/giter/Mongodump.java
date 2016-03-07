@@ -1,6 +1,5 @@
 package me.giter;
 
-
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -15,6 +14,7 @@ import org.xerial.snappy.SnappyOutputStream;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
+import com.beust.jcommander.ParameterException;
 import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObjectBuilder;
 import com.mongodb.DB;
@@ -33,28 +33,40 @@ public class Mongodump {
   @Parameter(names = { "-p", "--port" }, required = false, description = "Port of mongo instance")
   public int port = 27017;
 
-  @Parameter(names = { "-d", "--dir" }, required = true, description = "Port of mongo instance")
+  @Parameter(names = { "-d", "--dir" }, required = true, description = "directory backup to")
   public String directory;
 
-  @Parameter(names = { "-b", "--batch" }, required = false, description = "Port of mongo instance")
+  @Parameter(names = { "-b", "--batch" }, required = false, description = "query batch size")
   public int batchSize = 4 * 1024 * 1024;
 
-  @Parameter(names = { "-l", "--limit" }, required = false, description = "Port of mongo instance")
+  @Parameter(names = { "-l", "--limit" }, required = false, description = "query limit")
   public int limit = 10000;
 
-  @Parameter(names = { "--skip" }, required = false, description = "Port of mongo instance")
+  @Parameter(names = { "--skip" }, required = false, description = "skip db or collections")
   public Set<String> skips = new LinkedHashSet<>();
 
   @SuppressWarnings("deprecation")
   public static void main(String[] args) throws FileNotFoundException,
       IOException {
 
-    Mongodump jct = new Mongodump();
-    new JCommander(jct, args);
+    Mongodump options = new Mongodump();
 
-    try (MongoClient mc = new MongoClient(jct.host, jct.port)) {
+    JCommander commander = new JCommander(options);
+    commander.setProgramName("java -jar mongodump.jar");
 
-      File file = new File(jct.directory);
+    try {
+      commander.parse(args);
+    } catch (ParameterException e) {
+
+      System.err.println("Error: " + e.getMessage());
+
+      commander.usage();
+      System.exit(1);
+    }
+
+    try (MongoClient mc = new MongoClient(options.host, options.port)) {
+
+      File file = new File(options.directory);
       file.mkdirs();
 
       for (String dbName : mc.getDatabaseNames()) {
@@ -65,19 +77,19 @@ public class Mongodump {
         if (dbName.equals("admin"))
           continue;
 
-        if (jct.skips.contains(dbName))
+        if (options.skips.contains(dbName))
           continue;
 
         DB db = mc.getDB(dbName);
         for (String collName : db.getCollectionNames()) {
 
-          if (jct.skips.contains(dbName + "." + collName))
+          if (options.skips.contains(dbName + "." + collName))
             continue;
 
           DBCollection coll = db.getCollection(collName);
 
           try (SnappyOutputStream output = new SnappyOutputStream(
-              new FileOutputStream(jct.directory + "/" + dbName + "#"
+              new FileOutputStream(options.directory + "/" + dbName + "#"
                   + collName + ".snappy"))) {
 
             long n = coll.count();
@@ -119,8 +131,8 @@ public class Mongodump {
               for (DBObject o : coll
                   .find(
                       BasicDBObjectBuilder.start().push("_id").add("$gt", _id)
-                          .get()).sort(sort).batchSize(jct.batchSize)
-                  .limit(jct.limit)) {
+                          .get()).sort(sort).batchSize(options.batchSize)
+                  .limit(options.limit)) {
 
                 de.putObject(o);
                 pc++;
